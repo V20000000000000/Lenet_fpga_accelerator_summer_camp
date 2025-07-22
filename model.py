@@ -111,6 +111,10 @@ for epoch in range(num_epochs):
 
 print('training finished!')
 
+# Save the trained model's state dictionary
+torch.save(model.state_dict(), 'lenet.pt')
+print("Model state_dict saved to lenet.pt")
+
 
 ###########################################################################
 ########################## evaluating the model ###########################
