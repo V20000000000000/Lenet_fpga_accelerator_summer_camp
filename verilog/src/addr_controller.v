@@ -35,8 +35,8 @@ module addr_controller#(
     parameter FEATURE_MAP3_START_ADDR = 100,
     parameter FEATURE_MAP4_START_ADDR = 84,
     parameter FEATURE_MAP5_START_ADDR = 59,
-    parameter MAX_POOLING1_START_ADDR = 132,
-    parameter MAX_POOLING2_START_ADDR = 132,
+    parameter MAX_POOLING1_START_ADDR = 87,
+    parameter MAX_POOLING2_START_ADDR = 33,
     parameter KERNEL_SIZE           = 5
 )(
     input wire clk,
@@ -84,8 +84,7 @@ module addr_controller#(
     reg [ADDR_WIDTH-1:0] next_row_counter1, next_row_counter2, next_row_counter3, next_row_counter4, next_row_counter5, next_row_counter6, next_row_counter7;
     reg [ADDR_WIDTH-1:0] next_col_counter1, next_col_counter2, next_col_counter3, next_col_counter4, next_col_counter5, next_col_counter6, next_col_counter7;
     reg [ADDR_WIDTH-1:0] next_edge_counter1, next_edge_counter2, next_edge_counter3, next_edge_counter4, next_edge_counter5, next_edge_counter6, next_edge_counter7;
-
-    // --- FSM 實作 (兩段式寫法) ---
+    wire      mode_changed;
 
     // FSM for Map 1: 組合邏輯部分
     always @(*) begin
@@ -146,7 +145,7 @@ module addr_controller#(
             col_counter1       <= 0;
             edge_counter1      <= 0;
         end else begin
-            if (!en || ctrl_mode != 3'b000) begin
+            if (!en || ctrl_mode != 3'b000 || mode_changed) begin
                 current_map1_state <= S_IDLE;
                 map1_valid_reg     <= 1'b0;
                 row_counter1       <= 0;
@@ -217,7 +216,7 @@ module addr_controller#(
             col_counter2       <= 0;
             edge_counter2      <= 0;
         end else begin
-            if (!en || ctrl_mode != 3'b001) begin
+            if (!en || ctrl_mode != 3'b001 || mode_changed) begin
                 current_map2_state <= S_IDLE;
                 map2_valid_reg     <= 1'b0;
                 row_counter2       <= 0;
@@ -288,7 +287,7 @@ module addr_controller#(
             col_counter3       <= 0;
             edge_counter3      <= 0;
         end else begin
-            if (!en || ctrl_mode != 3'b010) begin
+            if (!en || ctrl_mode != 3'b010 || mode_changed) begin
                 current_map3_state <= S_IDLE;
                 map3_valid_reg     <= 1'b0;
                 row_counter3       <= 0;
@@ -359,7 +358,7 @@ module addr_controller#(
             col_counter4       <= 0;
             edge_counter4      <= 0;
         end else begin
-            if (!en || ctrl_mode != 3'b011) begin
+            if (!en || ctrl_mode != 3'b011 || mode_changed) begin
                 current_map4_state <= S_IDLE;
                 map4_valid_reg     <= 1'b0;
                 row_counter4       <= 0;
@@ -430,7 +429,7 @@ module addr_controller#(
             col_counter5       <= 0;
             edge_counter5      <= 0;
         end else begin
-            if (!en || ctrl_mode != 3'b100) begin
+            if (!en || ctrl_mode != 3'b100 || mode_changed) begin
                 current_map5_state <= S_IDLE;
                 map5_valid_reg     <= 1'b0;
                 row_counter5       <= 0;
@@ -446,42 +445,49 @@ module addr_controller#(
         end
     end
 
+    
+
+    // --- FSM for Map 6 (Pooling 1, 14x14 out): Combinational Part ---
     always @(*) begin
-        // 預設值
+        // 預設下一狀態等於當前狀態
         next_map6_state   = current_map6_state;
-        next_map6_valid   = 1'b0; // 預設 valid 為低
+        next_map6_valid   = 1'b0; // 預設 valid 為 0
         next_row_counter6 = row_counter6;
         next_col_counter6 = col_counter6;
 
         case (current_map6_state)
             S_IDLE: begin
-                if (ctrl_read_addr_reg >= MAX_POOLING1_START_ADDR) begin // Input is Map 2 (28x28)
+                // 只有當 read address 達到起始值時才轉換狀態
+                if ((~mode_changed) && ctrl_read_addr_reg >= MAX_POOLING1_START_ADDR) begin
                     next_map6_state = S_FETCH_DATA;
                 end else begin
                     next_map6_state = S_IDLE;
                 end
             end
             S_FETCH_DATA: begin
-                // *** 核心邏輯: 只有當 row 和 col 都是奇數時，valid 才為高 ***
-                // counter[0] 檢查是否為奇數，比 % 2 更有效率
+                // 2x2 Pooling with stride 2
+                // 只有在 2x2 窗口的右下角 (row, col 都是奇數) 才輸出 valid
                 if (row_counter6[0] == 1'b1 && col_counter6[0] == 1'b1) begin
                     next_map6_valid = 1'b1;
                 end
-
-                // 計數器掃描整個輸入 Feature Map
+                
+                // 遍歷輸入的 Feature Map (Map 2: 28x28)
                 if (col_counter6 < (FEATURE_MAP2_SIZE - 1)) begin
                     next_col_counter6 = col_counter6 + 1;
-                end else begin // 到達行尾
+                end else begin 
                     next_col_counter6 = 0;
                     if (row_counter6 < (FEATURE_MAP2_SIZE - 1)) begin
                         next_row_counter6 = row_counter6 + 1;
-                    end else begin // 到達圖的結尾
+                    end else begin
+                        // 遍歷完成，進入 FINISH 狀態
                         next_map6_state = S_FINISH;
                     end
                 end
             end
             S_FINISH: begin
                 next_map6_valid = 1'b0;
+                // 停在 FINISH 狀態，直到模式切換被重置
+                next_map6_state = S_FINISH;
             end
             default: begin
                 next_map6_state = S_IDLE;
@@ -489,13 +495,19 @@ module addr_controller#(
         endcase
     end
 
-    // --- NEW: FSM for Map 6 (Pooling 1): Sequential Part ---
+    // --- FSM for Map 6 (Pooling 1): Sequential Part ---
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            current_map6_state <= S_IDLE; map6_valid_reg <= 1'b0; row_counter6 <= 0; col_counter6 <= 0;
+            current_map6_state <= S_IDLE;
+            map6_valid_reg     <= 1'b0;
+            row_counter6       <= 0;
+            col_counter6       <= 0;
         end else begin
-            if (!en || ctrl_mode != 3'b101) begin
-                current_map6_state <= S_IDLE; map6_valid_reg <= 1'b0; row_counter6 <= 0; col_counter6 <= 0;
+            if (!en || ctrl_mode != 3'b101 || mode_changed) begin // Mode for Pooling 1
+                current_map6_state <= S_IDLE;
+                map6_valid_reg     <= 1'b0;
+                row_counter6       <= 0;
+                col_counter6       <= 0;
             end else begin
                 current_map6_state <= next_map6_state;
                 map6_valid_reg     <= next_map6_valid;
@@ -505,42 +517,47 @@ module addr_controller#(
         end
     end
 
-        // --- NEW: FSM for Map 7 (Pooling 2, 5x5 out): Combinational Part ---
+    // --- FSM for Map 7 (Pooling 2, 5x5 out): Combinational Part ---
     always @(*) begin
-        // 預設值
+        // 預設下一狀態等於當前狀態
         next_map7_state   = current_map7_state;
-        next_map7_valid   = 1'b0; // 預設 valid 為低
+        next_map7_valid   = 1'b0; // 預設 valid 為 0
         next_row_counter7 = row_counter7;
         next_col_counter7 = col_counter7;
 
         case (current_map7_state)
             S_IDLE: begin
-                if (ctrl_read_addr_reg >= MAX_POOLING2_START_ADDR) begin // Input is Map 4 (10x10)
+                // 只有當 read address 達到起始值時才轉換狀態
+                if ((~mode_changed) && ctrl_read_addr_reg >= MAX_POOLING2_START_ADDR) begin
                     next_map7_state = S_FETCH_DATA;
                 end else begin
                     next_map7_state = S_IDLE;
                 end
             end
             S_FETCH_DATA: begin
-                // *** 核心邏輯: 只有當 row 和 col 都是奇數時，valid 才為高 ***
+                // 2x2 Pooling with stride 2
+                // 只有在 2x2 窗口的右下角 (row, col 都是奇數) 才輸出 valid
                 if (row_counter7[0] == 1'b1 && col_counter7[0] == 1'b1) begin
                     next_map7_valid = 1'b1;
                 end
                 
-                // 計數器掃描整個輸入 Feature Map
+                // 遍歷輸入的 Feature Map (Map 4: 10x10)
                 if (col_counter7 < (FEATURE_MAP4_SIZE - 1)) begin
                     next_col_counter7 = col_counter7 + 1;
-                end else begin // 到達行尾
+                end else begin 
                     next_col_counter7 = 0;
                     if (row_counter7 < (FEATURE_MAP4_SIZE - 1)) begin
                         next_row_counter7 = row_counter7 + 1;
-                    end else begin // 到達圖的結尾
+                    end else begin 
+                        // 遍歷完成，進入 FINISH 狀態
                         next_map7_state = S_FINISH;
                     end
                 end
             end
             S_FINISH: begin
                 next_map7_valid = 1'b0;
+                // 停在 FINISH 狀態，直到模式切換被重置
+                next_map7_state = S_FINISH;
             end
             default: begin
                 next_map7_state = S_IDLE;
@@ -548,13 +565,19 @@ module addr_controller#(
         endcase
     end
 
-    // --- NEW: FSM for Map 7 (Pooling 2): Sequential Part ---
+    // --- FSM for Map 7 (Pooling 2): Sequential Part ---
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            current_map7_state <= S_IDLE; map7_valid_reg <= 1'b0; row_counter7 <= 0; col_counter7 <= 0;
+            current_map7_state <= S_IDLE;
+            map7_valid_reg     <= 1'b0;
+            row_counter7       <= 0;
+            col_counter7       <= 0;
         end else begin
-            if (!en || ctrl_mode != 3'b110) begin
-                current_map7_state <= S_IDLE; map7_valid_reg <= 1'b0; row_counter7 <= 0; col_counter7 <= 0;
+            if (!en || ctrl_mode != 3'b110 || mode_changed) begin // Mode for Pooling 2
+                current_map7_state <= S_IDLE;
+                map7_valid_reg     <= 1'b0;
+                row_counter7       <= 0;
+                col_counter7       <= 0;
             end else begin
                 current_map7_state <= next_map7_state;
                 map7_valid_reg     <= next_map7_valid;
@@ -591,7 +614,7 @@ module addr_controller#(
     // --- 寫入位址產生邏輯 ---
     reg [2:0] ctrl_mode_prev;
     reg [2:0] ctrl_mode_prev2;
-    wire      mode_changed;
+    
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
