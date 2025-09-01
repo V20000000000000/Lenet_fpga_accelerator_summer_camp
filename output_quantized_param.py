@@ -63,7 +63,7 @@ def print_quantization_config():
 
 if __name__=='__main__':
 
-    qmodel = build_qmodel('quant_model.pt') 
+    qmodel = build_qmodel('lenet.pt') 
     
     print(qmodel)
 

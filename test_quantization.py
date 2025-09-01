@@ -1,3 +1,4 @@
+# test_quantization.py
 import torch
 import torch.nn as nn
 from torchvision import datasets, transforms
@@ -7,59 +8,23 @@ from torch.quantization import QConfig, MinMaxObserver
 import os
 import numpy as np
 
-# Assume LeNet5 is defined in a 'model.py' file
-# from model import LeNet5
-# As a placeholder, let's define a simple LeNet5 structure here
-class LeNet5(nn.Module):
-    def __init__(self):
-        super(LeNet5, self).__init__()
-        # Add a QuantStub at the beginning of the model
-        self.quant = torch.quantization.QuantStub()
-        self.features = nn.Sequential(
-            # Input: 1x28x28 (MNIST image size)
-            # The original LeNet-5 used 32x32. Padding=2 adapts it for 28x28.
-            nn.Conv2d(in_channels=1, out_channels=6, kernel_size=5, stride=1, padding=2),   
-            nn.ReLU(),
-            # Output: 6x28x28
-            nn.AvgPool2d(kernel_size=2, stride=2),
-            # Output: 6x14x14
-            nn.Conv2d(in_channels=6, out_channels=16, kernel_size=5, stride=1),
-            nn.ReLU(),
-            # Output: 16x10x10
-            nn.AvgPool2d(kernel_size=2, stride=2),
-            # Output: 16x5x5
-        )
-        # BUG FIX: Added nn.Flatten() to the classifier block.
-        # This makes the model structure explicit and fixes the fusion error.
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(in_features=16*5*5, out_features=120),
-            nn.ReLU(),
-            nn.Linear(in_features=120, out_features=84),
-            nn.ReLU(),
-            nn.Linear(in_features=84, out_features=10)
-        )
-        # Add a DeQuantStub at the end of the model
-        self.dequant = torch.quantization.DeQuantStub()
-
-    def forward(self, x):
-        # Pass the input through the QuantStub
-        x = self.quant(x)
-        x = self.features(x)
-        # BUG FIX: The flattening is now handled by nn.Flatten in the classifier.
-        # x = x.view(-1, 16 * 4 * 4) # This line is no longer needed.
-        x = self.classifier(x)
-        # Pass the output through the DeQuantStub
-        x = self.dequant(x)
-        return x
+# 從 model.py 導入 LeNet5 class
+from model import Modified_LeNet5 as Lenet5
 
 # --- Model Helper Functions ---
+
+def print_model_parameters(model, model_type="Model"):
+    """Calculates and prints the total number of parameters in a model."""
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"[{model_type}] Total number of parameters: {total_params:,}")
+    return total_params
 
 def fuse_model(model):
     """Fuses convolution/BN/relu modules for quantization."""
     print("Fusing model modules...")
+    # 注意: 我們需要根據 model.py 中的結構來指定融合的層
     torch.quantization.fuse_modules(model.features, [['0', '1'], ['3', '4']], inplace=True)
-    torch.quantization.fuse_modules(model.classifier, [['1', '2'], ['3', '4']], inplace=True)
+    # torch.quantization.fuse_modules(model.classifier, [['1', '2']], inplace=True)
     print("Fusing complete.")
 
 def quantize_static(model, data_loader, backend='fbgemm', device='cpu'):
@@ -77,7 +42,7 @@ def quantize_static(model, data_loader, backend='fbgemm', device='cpu'):
     print("Calibrating model with data...")
     with torch.no_grad():
         for i, (inputs, _) in enumerate(data_loader):
-            if i >= 10:
+            if i >= 100:
                 break
             model(inputs.to(device))
     print("Calibration complete.")
@@ -105,9 +70,6 @@ def evaluate(model, test_loader, model_type="Quantized", device='cpu'):
 
 # --- Weight & Parameter Saving Functions ---
 
-import torch
-import torch.nn as nn
-
 def print_quantization_details(model: nn.Module):
     print("🔍 Detailed Quantized Layers Info:")
     for name, module in model.named_modules():
@@ -124,6 +86,27 @@ def print_quantization_details(model: nn.Module):
 
             print(f"  - {name}: scale={scale:.6f}, zero_point={zero_point}")
 
+def print_weight_quantization_details(model: nn.Module):
+    """Prints the scale and zero-point for the weights of quantized layers."""
+    print("\n⚖️  Detailed Weight Quantization Info:")
+    for name, module in model.named_modules():
+        if isinstance(module, (torch.nn.quantized.Linear, torch.nn.quantized.Conv2d)):
+            # 取得量化後的權重 tensor
+            q_weight = module.weight()
+            
+            # 檢查量化方案 (per-tensor or per-channel)
+            if q_weight.qscheme() == torch.per_tensor_affine:
+                scale = q_weight.q_scale()
+                zero_point = q_weight.q_zero_point()
+                print(f"  - {name} (per-tensor): scale={scale:.8f}, zero_point={zero_point}")
+            
+            elif q_weight.qscheme() == torch.per_channel_affine:
+                scales = q_weight.q_per_channel_scales()
+                zero_points = q_weight.q_per_channel_zero_points()
+                print(f"  - {name} (per-channel):")
+                print(f"    - scales shape: {scales.shape}")
+                print(f"    - scales tensor: {scales}")
+                print(f"    - zero_points tensor: {zero_points}")
 
 def save_quantized_int_weights(model, folder='param_data'):
     """Saves the INT8 weights of quantized layers to text files."""
@@ -172,32 +155,38 @@ if __name__ == '__main__':
     # --- 1. Setup & Data Loading ---
     DEVICE = 'cpu'
     
+    # data transformation pipeline(preprocessing)
     transform_pipeline = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
+        transforms.ToTensor(),  # Convert image to tensor
+        transforms.Normalize((0.5,), (0.5,))  # Normalize to [-1, 1] range
     ])
     
     if not os.path.exists("lenet.pt"):
-        print("Pre-trained model 'lenet.pt' not found. Creating a dummy model...")
-        dummy_model = LeNet5()
+        print("Pre-trained model 'lenet.pt' not found. Please run 'train.py' first.")
+        # Creating a dummy model to avoid crashing, but it won't be accurate
+        dummy_model = Lenet5()
         torch.save(dummy_model.state_dict(), "lenet.pt")
 
-    train_ds = datasets.MNIST(root='./data', train=True, download=True, transform=transform_pipeline)
+    train_ds = datasets.MNIST(root='./data', train=True, download=True, transform=transform_pipeline)    
     test_ds = datasets.MNIST(root='./data', train=False, download=True, transform=transform_pipeline)
     
     train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=1, shuffle=False)
 
     # --- 2. Load Model and Quantize ---
-    quant_model = LeNet5()
+    quant_model = Lenet5()
     print("Loading pre-trained model...")
     print(quant_model)
     quant_model.load_state_dict(torch.load("lenet.pt", map_location=torch.device(DEVICE)))
+
+    print_model_parameters(quant_model, model_type="Floating Point")
+
     quant_model = quantize_static(quant_model, train_loader, device=DEVICE)
     print("Quantized model structure:")
     print(quant_model)
     # --- 3. Analyze and Save Quantized Model ---
     print_quantization_details(quant_model)
+    print_weight_quantization_details(quant_model)
     save_quantized_int_weights(quant_model, folder='param_data')
     evaluate(quant_model, test_loader, model_type="Quantized", device=DEVICE)
     torch.save(quant_model.state_dict(), 'quant_model_statedict.pt')
