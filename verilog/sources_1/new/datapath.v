@@ -36,10 +36,9 @@ module datapath #(
     input wire                      rst_n,        // 非同步低電位重置
 
     // --- Data Inputs (for RAM) ---
-    input wire                      ram_write_en,
-    input wire [DATA_WIDTH-1:0]     ram_write_data,
+    // input wire [DATA_WIDTH-1:0]     ram_write_data,
 
-    output wire [DATA_WIDTH-1:0]    ram_output_wire,
+    // output wire [DATA_WIDTH-1:0]    ram_output_wire,
 
     // --- Control Signals from Controller ---
     input wire                      ctrl_ram_en,
@@ -49,22 +48,23 @@ module datapath #(
     input wire [ADDR_WIDTH-1:0]     ctrl_read_addr,
     input wire [$clog2(N*N)-1:0]    ctrl_weight_location,
     input wire [1:0]                  ctrl_mux_sel,
+    output reg [DATA_WIDTH-1:0]    result
 
-    output wire signed [PE_DATA_WIDTH+3:0] acc_out,
-    output wire signed [DATA_WIDTH-1:0] mux_out,
-    output wire [ADDR_WIDTH-1:0] ram_write_addr,
-    output wire signed [DATA_WIDTH-1:0] weight_data_from_ram,
-    output wire signed [DATA_WIDTH-1:0] relu_out,
+    // output wire signed [PE_DATA_WIDTH+3:0] acc_out,
+    // // output wire signed [DATA_WIDTH-1:0] mux_out,
+    // output wire [ADDR_WIDTH-1:0] ram_write_addr,
+    // output wire signed [DATA_WIDTH-1:0] weight_data_from_ram,
+    // output wire signed [DATA_WIDTH-1:0] relu_out,
 
     // --- Status Signals to Controller (if needed) ---
-    output wire [4:0]               out_valid,
-    output wire                     valid_out,
-    output wire [2:0]               state_out,
-    output wire [ADDR_WIDTH-1:0]    row_counter_out,
-    output wire [ADDR_WIDTH-1:0]    col_counter_out,
+    // output wire [4:0]               out_valid,
+    // output wire                     valid_out,
+    // output wire [2:0]               state_out,
+    // output wire [ADDR_WIDTH-1:0]    row_counter_out,
+    // output wire [ADDR_WIDTH-1:0]    col_counter_out
 
-    output wire [DATA_WIDTH-1:0] l_out_0,
-    output wire [DATA_WIDTH-1:0] l_out_1
+    // output wire [DATA_WIDTH-1:0] l_out_0,
+    // output wire [DATA_WIDTH-1:0] l_out_1
 );
 
 
@@ -73,17 +73,39 @@ module datapath #(
     wire [DATA_WIDTH-1:0]   ram_out0, ram_out1, ram_out2, ram_out3, ram_out4;
     // wire [ADDR_WIDTH-1:0]   ram_write_addr;
     wire [PE_DATA_WIDTH-1:0]   y0_out, y1_out, y2_out, y3_out, y4_out;
-    // wire [DATA_WIDTH-1:0]   l_out_0, l_out_1;
+    wire [DATA_WIDTH-1:0]   l_out_0, l_out_1;
     wire [DATA_WIDTH-1:0]   ram_out;
-    reg [$clog2(N*N)-1:0]    ctrl_weight_location_pipe [0:1];
+    reg [$clog2(N*N)-1:0]    ctrl_weight_location_pipe [0:2];
+
+    wire signed [DATA_WIDTH-1:0] mux_out;
+    wire signed [DATA_WIDTH-1:0] relu_out;
+    wire signed [PE_DATA_WIDTH+3:0] acc_out;
+    wire [ADDR_WIDTH-1:0] ram_write_addr;
+    wire signed [DATA_WIDTH-1:0] weight_data_from_ram;
+
+    wire [4:0]               out_valid;
+    wire                     valid_out;
+    wire [2:0]               state_out;
+    wire [ADDR_WIDTH-1:0]    row_counter_out;
+    wire [ADDR_WIDTH-1:0]    col_counter_out;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            result <= 0;
+        end else begin
+            result <= acc_out[7:0]; // 只取低 8 位元作為結果輸出
+        end
+    end
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             ctrl_weight_location_pipe[0] <= 0;
             ctrl_weight_location_pipe[1] <= 0;
+            ctrl_weight_location_pipe[2] <= 0;
         end else begin
             ctrl_weight_location_pipe[0] <= ctrl_weight_location;
             ctrl_weight_location_pipe[1] <= ctrl_weight_location_pipe[0];
+            ctrl_weight_location_pipe[2] <= ctrl_weight_location_pipe[1];
         end
     end
 
@@ -106,9 +128,9 @@ module datapath #(
         .read_addr(ctrl_read_addr),
 
         // --- 來自上層的 RAM 寫入信號 ---
-        .ram_write_en(ram_write_en),
+        .ram_write_en(valid_out),
         .ram_write_addr(ram_write_addr),
-        .ram_write_data(ram_write_data),
+        .ram_write_data(mux_out),
         .ram_output(ram_out),
 
         // --- Line Buffer ---
@@ -181,12 +203,12 @@ module datapath #(
         .PORT_WIDTH(PE_PORT_WIDTH),
         .N(N)
     ) pe_array_inst (
-        .clk(~clk),
+        .clk(clk),
         .rst_n(rst_n),
 
         // --- 來自 Controller 的控制信號 ---
         .WorI(ctrl_WorI),
-        .weight_location(ctrl_weight_location_pipe[1]),
+        .weight_location(ctrl_weight_location_pipe[2]),
 
         // --- 來自 ram_buffer 的數據輸入 ---
         .a0_in({ram_out0}),
@@ -194,7 +216,7 @@ module datapath #(
         .a2_in({ram_out2}),
         .a3_in({ram_out3}),
         .a4_in({ram_out4}),
-        .weight_in(weight_data_from_ram),
+        .weight_in(ram_out),
 
         // --- 來自上層的 Bias 輸入 ---
         .b0_in(8'b0),

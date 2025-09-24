@@ -62,8 +62,8 @@ module ram_buffer #(
     output wire [DATA_WIDTH-1:0]    out4,
     output wire [4:0]               out_valid,
     output wire [ADDR_WIDTH-1:0]    read_addr_out,
-    output wire [DATA_WIDTH-1:0]    weight_out,
-    output wire [DATA_WIDTH-1:0]    ram_output
+    output reg [DATA_WIDTH-1:0]    weight_out,
+    output reg [DATA_WIDTH-1:0]    ram_output
 );
 
     // --- 內部連線和訊號 ---
@@ -80,7 +80,13 @@ module ram_buffer #(
 
     // reg [4:0] out_valid_reg;
 
-    assign ram_output = ram_dout;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ram_output <= 0;
+        end else begin
+            ram_output <= ram_dout;
+        end
+    end
 
     // 將輸入的 read_addr 連接到輸出埠，方便觀察
     assign read_addr_out = read_addr;
@@ -101,9 +107,30 @@ module ram_buffer #(
         .clka(clk), .ena(ram_write_en), .wea(ram_write_en), .addra(ram_write_addr), .dina(ram_write_data),
         .clkb(clk), .enb(en), .addrb(read_addr), .doutb(ram_dout)
     );
-    wire [DATA_WIDTH-1:0] line_buffer_in;
-    assign weight_out = (WorI_pipe[1]) ? ram_dout : 0;
-    assign line_buffer_in = (~WorI_pipe[1]) ? ram_dout : 0;
+   //  wire [DATA_WIDTH-1:0] line_buffer_in;
+    // assign weight_out = (WorI_pipe[1]) ? ram_dout : 0;
+    // assign line_buffer_in = (~WorI_pipe[1]) ? ram_dout : 0;
+    reg [DATA_WIDTH-1:0] line_buffer_in;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) 
+            begin
+            // Reset logic
+                weight_out <= 0;
+                line_buffer_in <= 0;
+            end else begin
+                if(WorI_pipe[1] == 1)
+                    begin
+                        weight_out <= ram_dout;
+                        line_buffer_in <= 0;
+                    end
+                else
+                    begin
+                        weight_out <= 0;
+                        line_buffer_in <= ram_dout;
+                end
+        end
+    end
 
     // --- 實例化 Line Buffer ---
     // **重要**: 確保您的 line_buffer 模組有 'en' 埠

@@ -24,7 +24,7 @@ module tb_line_buffer;
 
     // --- 參數定義 ---
     localparam DATA_WIDTH = 8;
-    localparam MAX_WIDTH  = 28;
+    localparam MAX_WIDTH  = 32;
     localparam CLK_PERIOD = 10; // 10ns, 100MHz
 
     // --- Testbench 內部信號 ---
@@ -73,7 +73,7 @@ module tb_line_buffer;
     initial begin
         $display("===================================================");
         $display("T=%0t | Line Buffer Testbench 啟動", $time);
-        #200
+        
         // 1. 初始化並施加重置
         mode    <= 3'b001; // 從 mode 0 (寬度 28) 開始測試
         data_in <= 8'h00;
@@ -87,8 +87,8 @@ module tb_line_buffer;
         // --- 場景 1: 測試 Mode 0 (寬度 28) ---
         $display("\n--- 場景 1: 測試 Mode 0 (寬度 = 28) ---");
         mode <= 3'b000;
-        line_width = 28;
-        
+        line_width = 32;
+        #200
         // 串流輸入 6 行像素資料
         for (pixel_count = 0; pixel_count < line_width * 6; pixel_count = pixel_count + 1) begin
             @(posedge clk);

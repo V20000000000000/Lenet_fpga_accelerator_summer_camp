@@ -30,13 +30,14 @@ module addr_controller#(
     parameter FEATURE_MAP3_SIZE       = 14,
     parameter FEATURE_MAP4_SIZE       = 10,
     parameter FEATURE_MAP5_SIZE       = 5,
-    parameter FEATURE_MAP1_START_ADDR = 172,
-    parameter FEATURE_MAP2_START_ADDR = 156,
-    parameter FEATURE_MAP3_START_ADDR = 100,
-    parameter FEATURE_MAP4_START_ADDR = 84,
-    parameter FEATURE_MAP5_START_ADDR = 59,
+    parameter FEATURE_MAP1_START_ADDR = 173,
+    parameter FEATURE_MAP2_START_ADDR = 157,
+    parameter FEATURE_MAP3_START_ADDR = 101,
+    parameter FEATURE_MAP4_START_ADDR = 85,
+    parameter FEATURE_MAP5_START_ADDR = 60,
     parameter MAX_POOLING1_START_ADDR = 87,
     parameter MAX_POOLING2_START_ADDR = 33,
+    parameter RELU_START_ADDR_1       = 3,
     parameter KERNEL_SIZE           = 5
 )(
     input wire clk,
@@ -48,7 +49,7 @@ module addr_controller#(
 
     // --- 為了方便驗證而拉出的內部信號 ---
     output wire valid_out,
-    output wire [1:0] state_out,
+    output wire [2:0] state_out,
     output wire [ADDR_WIDTH-1:0] row_counter_out,
     output wire [ADDR_WIDTH-1:0] col_counter_out
 );
@@ -72,18 +73,18 @@ module addr_controller#(
 
     // --- 為 5 個 FSM 宣告各自的內部信號 ---
     // 當前狀態 (時序邏輯)
-    reg [1:0] current_map1_state, current_map2_state, current_map3_state, current_map4_state, current_map5_state, current_map6_state, current_map7_state;
-    reg map1_valid_reg, map2_valid_reg, map3_valid_reg, map4_valid_reg, map5_valid_reg, map6_valid_reg, map7_valid_reg;
-    reg [ADDR_WIDTH-1:0] row_counter1, row_counter2, row_counter3, row_counter4, row_counter5, row_counter6, row_counter7;
-    reg [ADDR_WIDTH-1:0] col_counter1, col_counter2, col_counter3, col_counter4, col_counter5, col_counter6, col_counter7;
-    reg [ADDR_WIDTH-1:0] edge_counter1, edge_counter2, edge_counter3, edge_counter4, edge_counter5, edge_counter6, edge_counter7;
+    reg [1:0] current_map1_state, current_map2_state, current_map3_state, current_map4_state, current_map5_state, current_map6_state, current_map7_state, current_map8_state;
+    reg map1_valid_reg, map2_valid_reg, map3_valid_reg, map4_valid_reg, map5_valid_reg, map6_valid_reg, map7_valid_reg, map8_valid_reg;
+    reg [ADDR_WIDTH-1:0] row_counter1, row_counter2, row_counter3, row_counter4, row_counter5, row_counter6, row_counter7, row_counter8;
+    reg [ADDR_WIDTH-1:0] col_counter1, col_counter2, col_counter3, col_counter4, col_counter5, col_counter6, col_counter7, col_counter8;
+    reg [ADDR_WIDTH-1:0] edge_counter1, edge_counter2, edge_counter3, edge_counter4, edge_counter5, edge_counter6, edge_counter7, edge_counter8;
 
     // 下一個狀態 (組合邏輯)
-    reg [1:0] next_map1_state, next_map2_state, next_map3_state, next_map4_state, next_map5_state, next_map6_state, next_map7_state;
-    reg next_map1_valid, next_map2_valid, next_map3_valid, next_map4_valid, next_map5_valid, next_map6_valid, next_map7_valid;
-    reg [ADDR_WIDTH-1:0] next_row_counter1, next_row_counter2, next_row_counter3, next_row_counter4, next_row_counter5, next_row_counter6, next_row_counter7;
-    reg [ADDR_WIDTH-1:0] next_col_counter1, next_col_counter2, next_col_counter3, next_col_counter4, next_col_counter5, next_col_counter6, next_col_counter7;
-    reg [ADDR_WIDTH-1:0] next_edge_counter1, next_edge_counter2, next_edge_counter3, next_edge_counter4, next_edge_counter5, next_edge_counter6, next_edge_counter7;
+    reg [1:0] next_map1_state, next_map2_state, next_map3_state, next_map4_state, next_map5_state, next_map6_state, next_map7_state, next_map8_state;
+    reg next_map1_valid, next_map2_valid, next_map3_valid, next_map4_valid, next_map5_valid, next_map6_valid, next_map7_valid, next_map8_valid;
+    reg [ADDR_WIDTH-1:0] next_row_counter1, next_row_counter2, next_row_counter3, next_row_counter4, next_row_counter5, next_row_counter6, next_row_counter7, next_row_counter8;
+    reg [ADDR_WIDTH-1:0] next_col_counter1, next_col_counter2, next_col_counter3, next_col_counter4, next_col_counter5, next_col_counter6, next_col_counter7, next_col_counter8;
+    reg [ADDR_WIDTH-1:0] next_edge_counter1, next_edge_counter2, next_edge_counter3, next_edge_counter4, next_edge_counter5, next_edge_counter6, next_edge_counter7, next_edge_counter8;
     wire      mode_changed;
 
     // FSM for Map 1: 組合邏輯部分
@@ -587,23 +588,40 @@ module addr_controller#(
         end
     end
 
+    // --- FSM for RELU_1 (14*14in, 14*14out): Combinational Part ---
+    always @(*) begin
+        if(ctrl_mode == 3'b111 && ctrl_read_addr_reg >= RELU_START_ADDR_1 && ctrl_read_addr_reg < RELU_START_ADDR_1 + FEATURE_MAP3_SIZE * FEATURE_MAP3_SIZE) begin
+            map8_valid_reg = 1'b1;
+        end else begin
+            map8_valid_reg = 1'b0;
+        end
+    end
+
     // --- 輸出選擇邏輯 (Output MUX) ---
     reg temp_valid;
-    reg [1:0] temp_state;
+    reg [2:0] temp_state;
     reg [ADDR_WIDTH-1:0] temp_row_counter;
     reg [ADDR_WIDTH-1:0] temp_col_counter;
 
-    always @(*) begin
-        case (ctrl_mode)
-            3'b000: begin temp_valid = map1_valid_reg; temp_state = current_map1_state; temp_row_counter = row_counter1; temp_col_counter = col_counter1; end
-            3'b001: begin temp_valid = map2_valid_reg; temp_state = current_map2_state; temp_row_counter = row_counter2; temp_col_counter = col_counter2; end
-            3'b010: begin temp_valid = map3_valid_reg; temp_state = current_map3_state; temp_row_counter = row_counter3; temp_col_counter = col_counter3; end
-            3'b011: begin temp_valid = map4_valid_reg; temp_state = current_map4_state; temp_row_counter = row_counter4; temp_col_counter = col_counter4; end
-            3'b100: begin temp_valid = map5_valid_reg; temp_state = current_map5_state; temp_row_counter = row_counter5; temp_col_counter = col_counter5; end
-            3'b101: begin temp_valid = map6_valid_reg; temp_state = current_map6_state; temp_row_counter = row_counter6; temp_col_counter = col_counter6; end
-            3'b110: begin temp_valid = map7_valid_reg; temp_state = current_map7_state; temp_row_counter = row_counter7; temp_col_counter = col_counter7; end
-            default: begin temp_valid = 1'b0; temp_state = S_IDLE; temp_row_counter = 0; temp_col_counter = 0; end
-        endcase
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            temp_valid <= 1'b0;
+            temp_state <= S_IDLE;
+            temp_row_counter <= 0;
+            temp_col_counter <= 0;
+        end else begin
+                case (ctrl_mode)
+                    3'b000: begin temp_valid <= map1_valid_reg; temp_state <= current_map1_state; temp_row_counter <= row_counter1; temp_col_counter <= col_counter1; end
+                    3'b001: begin temp_valid <= map2_valid_reg; temp_state <= current_map2_state; temp_row_counter <= row_counter2; temp_col_counter <= col_counter2; end
+                    3'b010: begin temp_valid <= map3_valid_reg; temp_state <= current_map3_state; temp_row_counter <= row_counter3; temp_col_counter <= col_counter3; end
+                    3'b011: begin temp_valid <= map4_valid_reg; temp_state <= current_map4_state; temp_row_counter <= row_counter4; temp_col_counter <= col_counter4; end
+                    3'b100: begin temp_valid <= map5_valid_reg; temp_state <= current_map5_state; temp_row_counter <= row_counter5; temp_col_counter <= col_counter5; end
+                    3'b101: begin temp_valid <= map6_valid_reg; temp_state <= current_map6_state; temp_row_counter <= row_counter6; temp_col_counter <= col_counter6; end
+                    3'b110: begin temp_valid <= map7_valid_reg; temp_state <= current_map7_state; temp_row_counter <= row_counter7; temp_col_counter <= col_counter7; end
+                    3'b111: begin temp_valid <= map8_valid_reg; temp_state <= current_map8_state; temp_row_counter <= row_counter8; temp_col_counter <= col_counter8; end
+                default: begin temp_valid <= 1'b0; temp_state <= S_IDLE; temp_row_counter <= 0; temp_col_counter <= 0; end
+            endcase
+        end
     end
     
     assign valid_out = temp_valid;

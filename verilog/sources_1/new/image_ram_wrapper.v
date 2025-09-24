@@ -50,14 +50,17 @@ module image_ram_wrapper #(
     blk_mem_gen_0 bram_ip_inst (
         .clka(clka),
         .ena(ena),
-        .wea(wea), // IP 的 wea 是 1-bit vector, Verilog 會自動轉換
+        .wea(wea), 
         .addra(addra),
         .dina(dina),
+        .douta(), 
         
         .clkb(clkb),
         .enb(enb),
         .addrb(addrb),
-        .doutb(doutb)
+        .doutb(doutb),
+        .dinb(8'b0), 
+        .web(1'b0) 
     );
 
 endmodule

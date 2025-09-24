@@ -66,6 +66,7 @@ module PE#(
             b_reg <= 0;
             a_pipe_1_reg <= 0;
             a_pipe_2_reg <= 0;
+            a_pipe_3_reg <= 0;
             b_pipe_1_reg <= 0;
             weight_reg <= 0;
         end else begin

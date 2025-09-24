@@ -78,8 +78,8 @@ for epoch in range(num_epochs):
 print('training finished!')
 
 # Save the trained model's state dictionary
-torch.save(model.state_dict(), 'lenet.pt')
-print("Model state_dict saved to lenet.pt")
+torch.save(model.state_dict(), 'Modified_lenet.pt')
+print("Model state_dict saved to Modified_lenet.pt")
 
 
 ###########################################################################

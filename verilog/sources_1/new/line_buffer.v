@@ -73,6 +73,7 @@ module line_buffer#(
             3'b100: active_line_width = FEATURE_MAP5_SIZE;
             3'b101: active_line_width = FEATURE_MAP2_SIZE;
             3'b110: active_line_width = FEATURE_MAP4_SIZE;
+            3'b111: active_line_width = FEATURE_MAP3_SIZE;
             default: active_line_width = FEATURE_MAP1_SIZE;
         endcase
     end
